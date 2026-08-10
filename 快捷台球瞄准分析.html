@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>快捷台球瞄准分析</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#0a0f12;
+    --bar:#0f1a22;
+    --bar2:#152228;
+    --line:#1f3340;
+    --txt:#e8eef0;
+    --dim:#7a8a92;
+    --accent:#00e5ff;
+    --aim:#ff9500;
+    --pkt:#00e5ff;
+    --trv:#ff3355;
+    --cue:#ffe44d;
+    --obj:#ff4d4d;
+    --ok:#4dff88;
+    --bad:#ff5555;
+  }
+  html,body { height:100%; background:var(--bg); color:var(--txt);
+    font-family:"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif; overflow:hidden; user-select:none; }
+  .app { display:flex; flex-direction:column; height:100vh; }
+
+  /* 顶栏 */
+  .bar { display:flex; align-items:center; gap:8px; padding:8px 12px;
+    background:linear-gradient(180deg,var(--bar),var(--bar2)); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .ttl { font-size:15px; font-weight:600; white-space:nowrap; }
+  .ttl .ic { color:var(--accent); }
+  .btn { display:inline-flex; align-items:center; gap:5px; padding:6px 11px;
+    background:#1a2a33; color:var(--txt); border:1px solid #2a3a44; border-radius:6px;
+    font-size:13px; cursor:pointer; transition:all .12s; white-space:nowrap; }
+  .btn:hover { background:#243641; border-color:var(--accent); }
+  .btn.primary { background:var(--accent); color:#001b22; border-color:var(--accent); font-weight:600; }
+  .btn.primary:hover { background:#33e8ff; }
+  .btn.danger:hover { background:#4a2222; border-color:var(--bad); }
+  .sep { width:1px; height:20px; background:var(--line); margin:0 3px; }
+  .spacer { flex:1; }
+  .ctl { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--dim); }
+  .ctl input[type=range] { width:80px; vertical-align:middle; }
+  .ctl .v { color:var(--accent); font-weight:600; min-width:24px; text-align:right; }
+  .mode-pill { display:flex; gap:3px; padding:2px; background:#0a1419; border-radius:6px; }
+  .mode-pill .m { padding:5px 9px; font-size:12px; border-radius:4px; cursor:pointer; color:var(--dim); }
+  .mode-pill .m.on { background:var(--accent); color:#001b22; font-weight:600; }
+  .kbd { display:inline-block; padding:1px 5px; background:#0a1419; border:1px solid #2a3a44;
+    border-radius:3px; font-size:11px; color:var(--dim); font-family:monospace; }
+
+  /* 主区 */
+  .main { display:flex; flex:1; overflow:hidden; }
+  .stage-wrap { flex:1; position:relative; overflow:hidden; background:#060a0c;
+    display:flex; align-items:center; justify-content:center; }
+  #stage { display:block; max-width:100%; max-height:100%; cursor:crosshair; }
+  #stage.drag { cursor:grab; }
+  .tip { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    background:rgba(0,0,0,.82); padding:14px 20px; border-radius:10px; font-size:13px;
+    text-align:center; max-width:340px; line-height:1.7; border:1px solid var(--line); pointer-events:none; }
+  .tip .n { display:inline-block; width:20px; height:20px; border-radius:50%; background:var(--accent);
+    color:#001b22; font-weight:700; line-height:20px; margin-right:6px; font-size:12px; }
+  .tip .hl { color:var(--accent); }
+  .drop-mask { position:absolute; inset:0; background:rgba(0,229,255,.12); border:3px dashed var(--accent);
+    display:none; align-items:center; justify-content:center; font-size:18px; color:var(--accent); pointer-events:none; }
+  .stage-wrap.dropping .drop-mask { display:flex; }
+
+  /* 底部数据条 */
+  .data-bar { background:var(--bar2); border-top:1px solid var(--line); padding:10px 14px;
+    display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  .data-bar .stat { display:flex; flex-direction:column; gap:2px; }
+  .data-bar .stat .lbl { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.5px; }
+  .data-bar .stat .val { font-size:16px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .data-bar .stat .val.accent { color:var(--accent); }
+  .data-bar .stat .val.ok { color:var(--ok); }
+  .data-bar .stat .val.bad { color:var(--bad); }
+  .data-bar .stat .val.aim { color:var(--aim); }
+  .data-bar .vbar { width:1px; height:32px; background:var(--line); }
+  .data-bar .hint { font-size:11px; color:var(--dim); line-height:1.5; flex:1; min-width:160px; }
+  .data-bar .empty { color:var(--dim); font-size:13px; }
+  .legend-inline { display:flex; gap:10px; font-size:11px; color:var(--dim); flex-wrap:wrap; }
+  .legend-inline span { display:inline-flex; align-items:center; gap:4px; }
+  .legend-inline .d { width:10px; height:10px; border-radius:50%; }
+  .legend-inline .l { width:16px; height:3px; border-radius:2px; }
+
+  .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,.88); color:var(--txt); padding:9px 16px; border-radius:6px;
+    font-size:13px; border:1px solid var(--accent); z-index:100; opacity:0;
+    transition:opacity .25s; pointer-events:none; }
+  .toast.show { opacity:1; }
+  input[type=file] { display:none; }
+
+  @media(max-width:720px){
+    .bar { padding:6px 8px; gap:5px; }
+    .ttl { font-size:13px; }
+    .btn { padding:5px 8px; font-size:12px; }
+    .data-bar { padding:8px; gap:10px; }
+    .data-bar .stat .val { font-size:14px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 顶栏 -->
+  <div class="bar">
+    <div class="ttl"><span class="ic">●</span> 快捷台球瞄准分析</div>
+    <div class="sep"></div>
+    <button class="btn primary" id="pasteBtn" title="支持 Ctrl+V 粘贴剪贴板截图">📋 粘贴截图</button>
+    <label class="btn" for="fileInput">📁 打开图片</label>
+    <input type="file" id="fileInput" accept="image/*">
+    <div class="sep"></div>
+    <div class="mode-pill" id="modePill">
+      <div class="m on" data-m="auto">自动顺序</div>
+      <div class="m" data-m="cue">⚪白球</div>
+      <div class="m" data-m="object">🔴目标</div>
+      <div class="m" data-m="pocket">⬛袋口</div>
+    </div>
+    <div class="sep"></div>
+    <div class="ctl">球径<input type="range" id="rR" min="6" max="44" value="14"><span class="v" id="rV">14</span></div>
+    <div class="spacer"></div>
+    <button class="btn danger" id="clrBtn" title="快捷键 C">🗑 清除</button>
+  </div>
+
+  <!-- 主区 -->
+  <div class="main">
+    <div class="stage-wrap" id="stageWrap">
+      <canvas id="stage"></canvas>
+      <div class="tip" id="tip"></div>
+      <div class="drop-mask">拖放图片到此处</div>
+    </div>
+  </div>
+
+  <!-- 底部数据条 -->
+  <div class="data-bar" id="dataBar">
+    <div class="empty">放置白球、目标球、袋口后显示瞄准数据</div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+const $ = id => document.getElementById(id);
+const canvas = $('stage'), ctx = canvas.getContext('2d');
+const wrap = $('stageWrap'), tip = $('tip'), dataBar = $('dataBar');
+const toastEl = $('toast'), fileInput = $('fileInput');
+
+let mode = 'auto'; // auto | cue | object | pocket
+let bg = null;     // 背景图
+let pts = { cue:null, object:null, pocket:null };
+let r = 14;
+let drag = null;
+let cw=800, ch=500;
+const DPR = window.devicePixelRatio||1;
+
+// ---- 工具 ----
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const sub=(a,b)=>({x:a.x-b.x,y:a.y-b.y});
+const norm=v=>{const l=Math.hypot(v.x,v.y)||1;return {x:v.x/l,y:v.y/l}};
+const ang=v=>Math.atan2(v.y,v.x)*180/Math.PI;
+const angBetween=(u,v)=>{let c=(u.x*v.x+u.y*v.y)/((Math.hypot(u.x,u.y)||1)*(Math.hypot(v.x,v.y)||1));if(c>1)c=1;if(c<-1)c=-1;return Math.acos(c)*180/Math.PI};
+const normA=a=>((a+180)%360+360)%360-180;
+function toast(m){toastEl.textContent=m;toastEl.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>toastEl.classList.remove('show'),1600)}
+
+// 记忆设置
+try{
+  const saved = JSON.parse(localStorage.getItem('bqa')||'{}');
+  if(saved.r) { r = saved.r; $('rR').value=r; $('rV').textContent=r; }
+}catch(e){}
+
+function save(){ try{ localStorage.setItem('bqa', JSON.stringify({r})); }catch(e){} }
+
+// ---- 画布 ----
+function resize(){
+  const rect = wrap.getBoundingClientRect();
+  cw = Math.max(300, Math.floor(rect.width));
+  ch = Math.max(300, Math.floor(rect.height));
+  canvas.style.width=cw+'px'; canvas.style.height=ch+'px';
+  canvas.width=cw*DPR; canvas.height=ch*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  draw();
+}
+
+// ---- 背景 ----
+function drawBg(){
+  ctx.clearRect(0,0,cw,ch);
+  if(bg){
+    const iw=bg.naturalWidth||bg.width, ih=bg.naturalHeight||bg.height;
+    if(!iw||!ih){ ctx.drawImage(bg,0,0,cw,ch); return; }
+    const s=Math.min(cw/iw,ch/ih);
+    const dw=iw*s, dh=ih*s, dx=(cw-dw)/2, dy=(ch-dh)/2;
+    ctx.fillStyle='#060a0c'; ctx.fillRect(0,0,cw,ch);
+    ctx.drawImage(bg,dx,dy,dw,dh);
+  } else {
+    drawSample();
+  }
+}
+function drawSample(){
+  ctx.fillStyle='#3a2410'; ctx.fillRect(0,0,cw,ch);
+  const m=Math.min(cw,ch)*0.06, fx=m, fy=m, fw=cw-m*2, fh=ch-m*2;
+  const g=ctx.createLinearGradient(0,fy,0,fy+fh);
+  g.addColorStop(0,'#1a6b3a'); g.addColorStop(.5,'#1e7a42'); g.addColorStop(1,'#155a2e');
+  ctx.fillStyle=g; ctx.fillRect(fx,fy,fw,fh);
+  ctx.strokeStyle='#0d3a1c'; ctx.lineWidth=3; ctx.strokeRect(fx,fy,fw,fh);
+  const pks=[{x:fx,y:fy},{x:fx+fw/2,y:fy-2},{x:fx+fw,y:fy},{x:fx,y:fy+fh},{x:fx+fw/2,y:fy+fh+2},{x:fx+fw,y:fy+fh}];
+  ctx.fillStyle='#000';
+  pks.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,Math.max(10,m*0.5),0,Math.PI*2);ctx.fill()});
+  ctx.strokeStyle='rgba(255,255,255,.12)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(fx+fw*.25,fy); ctx.lineTo(fx+fw*.25,fy+fh); ctx.stroke();
+}
+
+// ---- 瞄准计算 ----
+function calc(){
+  const {cue,object,pocket}=pts;
+  if(!cue||!object||!pocket) return null;
+  const dOP=norm(sub(pocket,object));
+  const ghost={x:object.x-dOP.x*2*r, y:object.y-dOP.y*2*r};
+  const dir=sub(ghost,cue), dirN=norm(dir);
+  let cut=angBetween(dirN,dOP);
+  const contact={x:object.x-dOP.x*r, y:object.y-dOP.y*r};
+  let tan={x:-dOP.y, y:dOP.x};
+  if(angBetween(tan,dirN)>90){ tan.x=-tan.x; tan.y=-tan.y; }
+  const feasible = cut < 89.5;
+  return {ghost,contact,tan,cut,aimA:ang(dirN),trvA:ang(dOP),dist:Math.hypot(dir.x,dir.y),feasible,dirN,dOP};
+}
+
+// ---- 辅助层 ----
+function drawAim(){
+  const a=calc(); if(!a) return;
+  const {cue,object,pocket}=pts;
+  const {ghost,contact,tan,cut,dirN,dOP,feasible}=a;
+  ctx.save();
+  // 入袋线
+  ctx.strokeStyle=getColor('--pkt'); ctx.lineWidth=2; ctx.setLineDash([6,5]);
+  ctx.beginPath(); ctx.moveTo(object.x,object.y); ctx.lineTo(pocket.x,pocket.y); ctx.stroke();
+  // 瞄准线
+  ctx.strokeStyle=getColor('--aim'); ctx.lineWidth=2.5; ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(cue.x-dirN.x*40, cue.y-dirN.y*40);
+  ctx.lineTo(ghost.x,ghost.y); ctx.stroke();
+  // 延伸
+  ctx.setLineDash([3,4]); ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(ghost.x,ghost.y); ctx.lineTo(object.x,object.y); ctx.stroke();
+  ctx.setLineDash([]);
+  // 白球后方向
+  if(feasible){
+    ctx.strokeStyle=getColor('--trv'); ctx.lineWidth=1.8; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(ghost.x,ghost.y); ctx.lineTo(ghost.x+tan.x*120, ghost.y+tan.y*120); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // 假想球
+  ctx.fillStyle='rgba(255,255,255,.13)'; ctx.strokeStyle='rgba(255,255,255,.7)'; ctx.lineWidth=1.5;
+  ctx.setLineDash([3,3]); ctx.beginPath(); ctx.arc(ghost.x,ghost.y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle='rgba(255,255,255,.55)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(ghost.x-4,ghost.y); ctx.lineTo(ghost.x+4,ghost.y);
+  ctx.moveTo(ghost.x,ghost.y-4); ctx.lineTo(ghost.x,ghost.y+4); ctx.stroke();
+  // 接触点
+  ctx.fillStyle='#ffcc00'; ctx.strokeStyle='#000'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(contact.x,contact.y,3,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  // 角度弧
+  if(cut<89){
+    const sA=Math.atan2(dOP.y,dOP.x), eA=Math.atan2(dirN.y,dirN.x);
+    let d=eA-sA; while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
+    const acw=d<0;
+    ctx.strokeStyle='#ffaa33'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(object.x,object.y,r+14,sA,eA,acw); ctx.stroke();
+    const mA=sA+d/2;
+    ctx.fillStyle='#ffcc44'; ctx.font='bold 12px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(cut.toFixed(1)+'°', object.x+Math.cos(mA)*(r+30), object.y+Math.sin(mA)*(r+30));
+  }
+  ctx.restore();
+}
+function getColor(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+// ---- 球 ----
+function drawPts(){
+  if(pts.pocket){
+    ctx.fillStyle='#000'; ctx.strokeStyle='#888'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(pts.pocket.x,pts.pocket.y,r*1.2,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#ccc'; ctx.font='10px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('袋',pts.pocket.x,pts.pocket.y+3);
+  }
+  if(pts.object) drawBall(pts.object.x,pts.object.y,r,'#ff4d4d','#7a1a1a');
+  if(pts.cue) drawBall(pts.cue.x,pts.cue.y,r,'#ffe44d','#8a7a00');
+}
+function drawBall(x,y,rad,fill,edge){
+  ctx.fillStyle='rgba(0,0,0,.4)'; ctx.beginPath(); ctx.arc(x+2,y+3,rad,0,Math.PI*2); ctx.fill();
+  const g=ctx.createRadialGradient(x-rad*.3,y-rad*.3,rad*.1,x,y,rad);
+  g.addColorStop(0,'#fff'); g.addColorStop(.3,fill); g.addColorStop(1,edge);
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,rad,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,.5)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(x-rad*.35,y-rad*.35,rad*.25,0,Math.PI*2); ctx.fill();
+}
+
+// ---- 主绘制 ----
+function draw(){
+  drawBg(); drawAim(); drawPts();
+  updateTip(); updateData(calc());
+}
+
+// ---- 提示 ----
+function updateTip(){
+  const c=pts.cue,o=pts.object,p=pts.pocket;
+  if(!bg && !c && !o && !p){
+    tip.innerHTML='<span class="n">1</span><span class="hl">Win+Shift+S</span> 截屏 → 切到本窗口 <span class="hl">Ctrl+V</span> 粘贴<br>或拖拽图片文件、点「打开图片」<br>然后依次点击：白球 → 目标球 → 袋口';
+    tip.style.display='block';
+  } else if(!c){
+    tip.innerHTML='<span class="n">2</span>点击放置 <span class="hl">白球</span>（母球）';
+    tip.style.display='block';
+  } else if(!o){
+    tip.innerHTML='<span class="n">3</span>点击放置 <span class="hl">目标球</span>';
+    tip.style.display='block';
+  } else if(!p){
+    tip.innerHTML='<span class="n">4</span>点击放置 <span class="hl">袋口</span>';
+    tip.style.display='block';
+  } else {
+    tip.style.display='none';
+  }
+}
+
+// ---- 数据条 ----
+function updateData(a){
+  if(!a){
+    dataBar.innerHTML='<div class="empty">放置白球、目标球、袋口后显示瞄准数据</div>';
+    return;
+  }
+  const f=a.feasible;
+  dataBar.innerHTML = `
+    <div class="stat"><div class="lbl">可行性</div><div class="val ${f?'ok':'bad'}">${f?'可行 ✓':'角度过大 ✗'}</div></div>
+    <div class="vbar"></div>
+    <div class="stat"><div class="lbl">切球角</div><div class="val accent">${a.cut.toFixed(1)}°</div></div>
+    <div class="vbar"></div>
+    <div class="stat"><div class="lbl">击打方向</div><div class="val aim">${normA(a.aimA).toFixed(1)}°</div></div>
+    <div class="vbar"></div>
+    <div class="stat"><div class="lbl">目标行进</div><div class="val">${normA(a.trvA).toFixed(1)}°</div></div>
+    <div class="vbar"></div>
+    <div class="hint">${f?'白球瞄向假想球位置击打，目标球沿入袋线进袋。':'白球位于入袋线另一侧90°外，该角度无法直接入袋。'}<br>快捷键：<span class="kbd">1</span><span class="kbd">2</span><span class="kbd">3</span>切模式 <span class="kbd">C</span>清除 <span class="kbd">Space</span>重置当前</div>
+    <div class="legend-inline">
+      <span><span class="d" style="background:var(--cue)"></span>白球</span>
+      <span><span class="d" style="background:var(--obj)"></span>目标</span>
+      <span><span class="l" style="background:var(--aim)"></span>瞄准线</span>
+      <span><span class="l" style="background:var(--pkt)"></span>入袋线</span>
+      <span><span class="l" style="background:var(--trv)"></span>白球去向</span>
+    </div>
+  `;
+}
+
+// ---- 交互 ----
+function pos(e){
+  const rect=canvas.getBoundingClientRect();
+  const t=e.touches?e.touches[0]:e;
+  return {x:t.clientX-rect.left, y:t.clientY-rect.top};
+}
+function hit(p){ for(const k of ['cue','object','pocket']) if(pts[k]&&dist(p,pts[k])<=r+4) return k; return null; }
+
+function onDown(e){
+  e.preventDefault();
+  const p=pos(e);
+  const h=hit(p);
+  if(h){ drag=h; canvas.classList.add('drag'); return; }
+  // 自动顺序模式
+  let key;
+  if(mode==='auto'){
+    if(!pts.cue) key='cue';
+    else if(!pts.object) key='object';
+    else if(!pts.pocket) key='pocket';
+    else key=null; // 都放满了，重置当前模式点
+  } else {
+    key = mode;
+  }
+  if(key){ pts[key]=p; draw(); }
+}
+function onMove(e){
+  if(!drag) return;
+  e.preventDefault();
+  pts[drag]=pos(e); draw();
+}
+function onUp(){ drag=null; canvas.classList.remove('drag'); }
+
+canvas.addEventListener('mousedown',onDown);
+canvas.addEventListener('mousemove',onMove);
+window.addEventListener('mouseup',onUp);
+canvas.addEventListener('touchstart',onDown,{passive:false});
+canvas.addEventListener('touchmove',onMove,{passive:false});
+window.addEventListener('touchend',onUp);
+
+// ---- 模式切换 ----
+function setMode(m){
+  mode=m;
+  document.querySelectorAll('.mode-pill .m').forEach(x=>x.classList.toggle('on', x.dataset.m===m));
+  updateTip();
+}
+document.querySelectorAll('.mode-pill .m').forEach(x=>x.addEventListener('click',()=>setMode(x.dataset.m)));
+
+// ---- 键盘 ----
+window.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT') return;
+  const k=e.key.toLowerCase();
+  if(e.ctrlKey||e.metaKey){ if(k==='v'){ e.preventDefault(); doPaste(); } return; }
+  if(k==='1') setMode('cue');
+  else if(k==='2') setMode('object');
+  else if(k==='3') setMode('pocket');
+  else if(k==='a') setMode('auto');
+  else if(k==='c'){ pts={cue:null,object:null,pocket:null}; draw(); toast('已清除'); }
+  else if(k===' '){
+    // 空格重置当前模式对应的点
+    if(mode==='auto'){ pts={cue:null,object:null,pocket:null}; }
+    else { pts[mode]=null; }
+    draw(); e.preventDefault();
+  }
+});
+
+// ---- 图片导入 ----
+function loadImg(src){
+  const img=new Image();
+  img.onload=()=>{ bg=img; draw(); toast('图片已加载'); };
+  img.src=src;
+}
+fileInput.addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const fr=new FileReader();
+  fr.onload=ev=>loadImg(ev.target.result);
+  fr.readAsDataURL(f);
+});
+
+// 粘贴
+function doPaste(){
+  navigator.clipboard.read().then(items=>{
+    for(const it of items){
+      if(it.type.startsWith('image/')){
+        it.getBlob(b=>{ const fr=new FileReader(); fr.onload=ev=>loadImg(ev.target.result); fr.readAsDataURL(b); });
+        return;
+      }
+    }
+    toast('剪贴板没有图片');
+  }).catch(()=>toast('无法读取剪贴板，试试拖拽或打开图片'));
+}
+$('pasteBtn').addEventListener('click',doPaste);
+
+// paste 事件（当焦点在页面时）
+window.addEventListener('paste',e=>{
+  const items=e.clipboardData&&e.clipboardData.items;
+  if(!items) return;
+  for(const it of items){
+    if(it.type.startsWith('image/')){
+      const f=it.getAsFile();
+      const fr=new FileReader();
+      fr.onload=ev=>loadImg(ev.target.result);
+      fr.readAsDataURL(f);
+      e.preventDefault();
+      return;
+    }
+  }
+});
+
+// 拖拽
+wrap.addEventListener('dragover',e=>{ e.preventDefault(); wrap.classList.add('dropping'); });
+wrap.addEventListener('dragleave',()=>wrap.classList.remove('dropping'));
+wrap.addEventListener('drop',e=>{
+  e.preventDefault(); wrap.classList.remove('dropping');
+  const f=e.dataTransfer.files[0];
+  if(f && f.type.startsWith('image/')){
+    const fr=new FileReader(); fr.onload=ev=>loadImg(ev.target.result); fr.readAsDataURL(f);
+  }
+});
+
+// ---- 控件 ----
+$('rR').addEventListener('input',e=>{ r=parseInt(e.target.value); $('rV').textContent=r; save(); draw(); });
+$('clrBtn').addEventListener('click',()=>{ pts={cue:null,object:null,pocket:null}; draw(); toast('已清除'); });
+
+// ---- 初始 ----
+window.addEventListener('resize',resize);
+resize();
+// 默认加载示例桌
+bg=null;
+const m0=Math.min(cw,ch)*0.06;
+pts={cue:{x:cw*.3,y:ch*.65}, object:{x:cw*.55,y:ch*.45}, pocket:{x:m0,y:m0}};
+draw();
+})();
+</script>
+</body>
+</html>
